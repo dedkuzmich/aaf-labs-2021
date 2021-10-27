@@ -16,14 +16,13 @@ def Input():
 
 
 def Create(command):
-    table_name = (Combine(Char(alphas) + Optional(Word(alphanums + '_'))))('table_name')
-    col_name = Combine(Char(alphas) + Optional(Word(alphanums + '_')))
+    ident = Word(initChars=alphas, bodyChars=(alphanums + '_'))
 
     col_indexed = Optional(CaselessLiteral('INDEXED'))
-    crete_full = Group(col_name + col_indexed)
-    created = Group(crete_full + ZeroOrMore(Suppress(',') + crete_full))('created')
+    create_full = Group(ident + col_indexed)
+    created = delimitedList(create_full, delim=',')('created')
 
-    create_command = CaselessLiteral('CREATE') + table_name + '(' + created + ');'
+    create_command = CaselessLiteral('CREATE') + ident('table_name') + '(' + created + ');'
     try:
         parsed = create_command.parseString(command)
     except ParseException as pe:
@@ -41,13 +40,12 @@ def Create(command):
 
 
 def Insert(command):
-    table_name = (Combine(Char(alphas) + Optional(Word(alphanums + '_'))))('table_name')
+    ident = Word(initChars=alphas, bodyChars=(alphanums + '_'))
 
-    value = Word(printables, excludeChars='"')
-    value_full = Suppress('"') + Combine(value + ZeroOrMore(' ' + value)) + Suppress('"')
-    inserted = Group(value_full + ZeroOrMore(Suppress(',') + value_full))('inserted')
+    value = QuotedString('"', escQuote='""')
+    inserted = delimitedList(value, delim=',')('inserted')
 
-    insert_command = CaselessLiteral('INSERT') + Optional(CaselessLiteral('INTO')) + table_name + '(' + inserted + ');'
+    insert_command = CaselessLiteral('INSERT') + Optional(CaselessLiteral('INTO')) + ident('table_name') + '(' + inserted + ');'
     try:
         parsed = insert_command.parseString(command)
     except ParseException as pe:
@@ -61,21 +59,19 @@ def Insert(command):
 
 
 def Select(command):
-    table_name = (Combine(Char(alphas) + Optional(Word(alphanums + '_'))))('table_name')
-    col_name = Combine(Char(alphas) + Optional(Word(alphanums + '_')))
+    ident = Word(initChars=alphas, bodyChars=(alphanums + '_'))
 
-    selected = Group(Char('*') ^ (col_name + ZeroOrMore(Suppress(',') + col_name)))('selected')
+    selected = (Char('*') ^ delimitedList(ident, delim=','))('selected')
 
     operator = (Word('=') ^ Word('!=') ^ Word('>') ^ Word('<') ^ Word('>=') ^ Word('<='))
-    value = Word(printables, excludeChars='"')
-    value_full = Suppress('"') + Combine(value + ZeroOrMore(' ' + value)) + Suppress('"')
-    condition = Group((col_name + operator + col_name) ^ (col_name + operator + value_full) ^ (value_full + operator + col_name))('condition')
+    value = QuotedString('"', escQuote='""')
+    condition = Group((ident ^ value) + operator + (ident ^ value))('condition')
 
     order_mode = Optional(CaselessLiteral('ASC') ^ CaselessLiteral('DESC'))
-    order_full = Group(col_name + order_mode)
-    ordered = Group(order_full + ZeroOrMore(Suppress(',') + order_full))('ordered')
+    order_full = Group(ident + order_mode)
+    ordered = delimitedList(order_full, delim=',')('ordered')
 
-    select_command = CaselessLiteral('SELECT') + selected + CaselessLiteral('FROM') + table_name + Optional(CaselessLiteral('WHERE') + condition) + Optional(
+    select_command = CaselessLiteral('SELECT') + selected + CaselessLiteral('FROM') + ident('table_name') + Optional(CaselessLiteral('WHERE') + condition) + Optional(
         CaselessLiteral('ORDER_BY') + ordered) + ';'
     try:
         parsed = select_command.parseString(command)
@@ -104,15 +100,13 @@ def Select(command):
 
 
 def Delete(command):
-    table_name = (Combine(Char(alphas) + Optional(Word(alphanums + '_'))))('table_name')
-    col_name = Combine(Char(alphas) + Optional(Word(alphanums + '_')))
+    ident = Word(initChars=alphas, bodyChars=(alphanums + '_'))
 
     operator = (Word('=') ^ Word('!=') ^ Word('>') ^ Word('<') ^ Word('>=') ^ Word('<='))
-    value = Word(printables, excludeChars='"')
-    value_full = Suppress('"') + Combine(value + ZeroOrMore(' ' + value)) + Suppress('"')
-    condition = Group((col_name + operator + col_name) ^ (col_name + operator + value_full) ^ (value_full + operator + col_name))('condition')
+    value = QuotedString('"', escQuote='""')
+    condition = Group((ident ^ value) + operator + (ident ^ value))('condition')
 
-    delete_command = CaselessLiteral('DELETE') + Optional(CaselessLiteral('FROM')) + table_name + Optional(CaselessLiteral('WHERE') + condition) + ';'
+    delete_command = CaselessLiteral('DELETE') + Optional(CaselessLiteral('FROM')) + ident('table_name') + Optional(CaselessLiteral('WHERE') + condition) + ';'
     try:
         parsed = delete_command.parseString(command)
     except ParseException as pe:
@@ -130,28 +124,27 @@ def Delete(command):
 def Main():
     while True:
         command = Input()
-        str11 = 'CREATE cats1 (id1,     favourite_food1);'
-        str12 = 'CREATE cats (id, name indexed, favourite_food);'
-        str13 = 'CrEatE\t cats1 (id\r, name \t \n \r inDexEd, \n favourite_food); tehethe\rte'
-        str14 = 'CREATE c (i, name indexed, favourite_food);'
-
-        str21 = 'INSERT cats1 ("0", "burger", "kisa");'
-        str22 = 'INSERT INTO cats1 ("id1", "favourite_food1", "sdfgf", "qyure");'
-        str22 = 'INSERT INTO cats1 ("i  d1", "fa vourite_      food1", "s df gf", "qyu re");'
-
-        str31 = 'SelEct \n \t dgrgg\r, \t \n \t gwrgwe\n,\t wgrgwrwgw \tFroM\n cat1; trh\nrgsfgsg'
-        str32 = 'SelEct dgrgg, gwrgwe, wgrgwrwg FroM cat1 wheRE gwrgwe > "ree";'
-        str33 = 'SelEct * FroM cat1 wheRE gwrgwe > "ree";'
-        str34 = 'SELECT dgrgg, gwrgwe, wgrgwrwg FROM cat1 WHERE gwrgwe > "ree" ORDER_BY gladiator ASC, robber DESC, spitfire;'
-        str35 = 'SELECT * FROM cat1 WHERE gwrgwe > "ree" ORDER_BY gladiator ASC, robber DESC, spitfire;'
-        str36 = 'SELECT * FROM cat1 WHERE gwrgwe > gwrgwe ORDER_BY gladiator ASC, robber DESC, spitfire;'
-        str37 = 'SELECT * FROM cat1 WHERE gwrgwe > "rtv ee" ORDER_BY gladiator ASC, robber DESC, spitfire;'
-        str38 = 'SELECT * FROM cat1 WHERE "rtv ee" > gwrgwe ORDER_BY gladiator ASC, robber DESC, spitfire;'
-
-        str41 = 'DELETE FROM cats WHERE name = "Mur zik";'
-        str42 = 'DELETE cats;'
-        str41 = 'DELETE FROM cats WHERE "Mur zik" = name;'
-        str41 = 'DELETE FROM cats WHERE name != surname;'
+        # str11 = 'CREATE cats1 (id1,     favourite_food1);'
+        # str12 = 'CREATE cats (id, name indexed, favourite_food);'
+        # str13 = 'CREATE c (i, name indexed, favourite_food);'
+        #
+        # str21 = 'INSERT cats1 ("0", "burger", "kisa");'
+        # str22 = 'INSERT INTO cats1 ("id1", "favourite_food1", "sdfgf", "qyure");'
+        # str22 = 'INSERT INTO cats1 ("i  d1", "fa vourite_      food1", "s df gf", "qyu re");'
+        #
+        # str31 = 'SelEct dgr gg, gw rgwe, wgrgwrwg FroM cat1 wheRE gwrgwe > "ree";'
+        # str32 = 'SelEct dgrgg, gwrgwe, wgrgwrwg FroM cat1 wheRE gwrgwe > "ree";'
+        # str33 = 'SelEct * FroM cat1 wheRE gwrgwe > "ree";'
+        # str34 = 'SELECT dgrgg, gwrgwe, wgrgwrwg FROM cat1 WHERE gwrgwe > "ree" ORDER_BY gladiator ASC, robber DESC, spitfire;'
+        # str35 = 'SELECT * FROM cat1 WHERE gwrgwe > "ree" ORDER_BY gladiator ASC, robber DESC, spitfire;'
+        # str36 = 'SELECT wewe, wrgwrwwr, ngfngf FROM cat1 WHERE gwrgwe > gwrgwe ORDER_BY gladiator ASC, robber DESC, spitfire;'
+        # str37 = 'SELECT * FROM cat1 WHERE gwrgwe > "rtv ee" ORDER_BY gladiator ASC, robber DESC, spitfire;'
+        # str38 = 'SELECT * FROM cat1 WHERE "rtv ee" > rrwgr ORDER_BY gladiator ASC, robber DESC, spitfire;'
+        #
+        # str41 = 'DELETE FROM cats WHERE name = "Mur zik";'
+        # str42 = 'DELETE cats;'
+        # str41 = 'DELETE FROM cats WHERE "Mur zik" = name;'
+        # str41 = 'DELETE FROM cats WHERE name != surname;'
 
         print('\nEntered SQL command: ' + command + '\n')
         lexem = command.split(' ')[0]
