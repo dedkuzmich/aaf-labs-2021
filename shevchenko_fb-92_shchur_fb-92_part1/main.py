@@ -1,6 +1,5 @@
 from pyparsing import *
 from prettytable import PrettyTable
-import copy
 import numpy as np
 from sortedcontainers import SortedDict, SortedList
 
@@ -107,42 +106,42 @@ class Table:
 
 
 def Check_Table(name):
-    for table in DataBase:
-        if table.name == name:
+    for T in DataBase:
+        if T.name == name:
             return True
     print('There is no table named', name, 'in data base!')
     return False
 
 
-def Get_IDs(Table, condition):
+def Get_IDs(T, condition):
     operator = condition[1]
     ids = []
-    if Table.Check_Column(condition[0]) == True and Table.Check_Column(condition[2]) == True:
+    if T.Check_Column(condition[0]) == True and T.Check_Column(condition[2]) == True:
         idx_1 = 0
         idx_2 = 0
-        for column_1 in Table.columns:
+        for column_1 in T.columns:
             if column_1.name == condition[0]:
-                idx_1 = Table.columns.index(column_1)
+                idx_1 = T.columns.index(column_1)
 
-        for column_2 in Table.columns:
+        for column_2 in T.columns:
             if column_2.name == condition[2]:
-                idx_2 = Table.columns.index(column_2)
+                idx_2 = T.columns.index(column_2)
 
-        for idx in range(len(Table.columns[0].values)):
-            val_1 = Table.columns[idx_1].values[idx]
-            val_2 = Table.columns[idx_2].values[idx]
+        for idx in range(len(T.columns[0].values)):
+            val_1 = T.columns[idx_1].values[idx]
+            val_2 = T.columns[idx_2].values[idx]
             if (operator == '=' and val_1 == val_2) or (operator == '!=' and val_1 != val_2) \
                     or (operator == '>' and val_1 > val_2) or (operator == '<' and val_1 < val_2) \
                     or (operator == '>=' and val_1 >= val_2) or (operator == '<=' and val_1 <= val_2):
-                id = Table.columns[0].values[idx]
+                id = T.columns[0].values[idx]
                 ids.append(id)
     else:
         name = ''
         value = ''
-        if Table.Check_Column(condition[0]) == True and Table.Check_Column(condition[2]) == False:
+        if T.Check_Column(condition[0]) == True and T.Check_Column(condition[2]) == False:
             name = condition[0]
             value = condition[2]
-        elif Table.Check_Column(condition[0]) == False and Table.Check_Column(condition[2]) == True:
+        elif T.Check_Column(condition[0]) == False and T.Check_Column(condition[2]) == True:
             name = condition[2]
             value = condition[0]
             if operator == '>':
@@ -154,7 +153,7 @@ def Get_IDs(Table, condition):
             elif operator == '<=':
                 operator = '>='
 
-        for column in Table.columns:
+        for column in T.columns:
             if column.name == name:
                 if column.indexed == True:
                     for val in column.tree:
@@ -173,7 +172,7 @@ def Get_IDs(Table, condition):
                             indexes = Find_Occurrences(column.values, val)
                             id = []
                             for idx in indexes:
-                                id.append(Table.columns[0].values[idx])
+                                id.append(T.columns[0].values[idx])
                             ids = ids + id
     return np.unique(ids)
 
@@ -182,6 +181,90 @@ def Clear_Text(multiline):
     index = multiline.find(';')
     multiline = multiline[slice(0, index + 1)]
     return ' '.join(multiline.replace('\n', '').replace('\r', '').split())
+
+
+def Add_Row(Source_T, Destination_T, id):
+    for ID in Source_T.columns[0].values:
+        if ID == id:
+            row_idx = Source_T.columns[0].values.index(ID)
+            for col_idx in range(len(Destination_T.columns)):
+                Destination_T.columns[col_idx].Insert_Element(Source_T.columns[col_idx].values[row_idx])
+
+
+def Change_Row(Source_T, Destination_T):
+    Change_mass = []
+    for dest_idx in Destination_T.columns[0].values:
+        for source_idx in Source_T.columns[0].values:
+            if dest_idx == source_idx:
+                Change_mass.append(Destination_T.columns[0].values.index(dest_idx))
+    for col in Source_T.columns:
+        col_indx = Source_T.columns.index(col)
+        for i in range(0, len(Change_mass)):
+            Destination_T.columns[col_indx].values[Change_mass[i]] = col.values[i]
+    return Destination_T
+
+
+def Create_Table(T):
+    empty_cols = []
+    for column in T.columns:
+        empty_cols.append(Column(column.name, column.indexed))
+    Buff_T = Table('Buff_T', empty_cols)
+
+    for row_idx in range(len(T.columns[0].values)):
+        for col_idx in range(len(T.columns)):
+            Buff_T.columns[col_idx].Insert_Element(T.columns[col_idx].values[row_idx])
+    return Buff_T
+
+
+def Create_Empty_Table(T):
+    empty_cols = []
+    for column in T.columns:
+        empty_cols.append(Column(column.name, column.indexed))
+    Buff_T = Table('Buff_T', empty_cols)
+    return Buff_T
+
+
+def Sort_Table(T, order, order_depth):
+    if (order_depth >= len(order)):
+        return T
+    Buff_T = Create_Table(T)
+    ids = []
+    for column in T.columns:
+        if column.name == order[order_depth][0]:
+            if column.indexed == True:
+                for id in SortedDict(column.tree).values():
+                    ids = ids + id
+            else:
+                for sorted_val in SortedList(column.values):
+                    for row_idx in range(len(column.values)):
+                        if column.values[row_idx] == sorted_val:
+                            id = T.columns[0].values[row_idx]
+                            if id not in ids:
+                                ids.append(id)
+
+            if order[order_depth][1] == 'DESC':
+                ids = list(reversed(ids))
+
+            for target_row_idx in range(len(ids)):
+                buff_row_idx = Buff_T.columns[0].values.index(str(ids[target_row_idx]))
+                for col_idx in range(len(T.columns)):
+                    T.columns[col_idx].values[target_row_idx] = Buff_T.columns[col_idx].values[buff_row_idx]
+
+            sorted_values = []
+            for i in range(len(column.values)):
+                if i == column.values.index(column.values[i]):
+                    count = column.values.count(column.values[i])
+                    if count >= 2:
+                        sorted_values.append(column.values[i])
+            for val in sorted_values:
+                Fragment_T = Create_Empty_Table(T)
+                IDs = Get_IDs(T, [order[order_depth][0], '=', val])
+                for id in IDs:
+                    Add_Row(T, Fragment_T, str(id))
+                Fragment_T = Sort_Table(Fragment_T, order, order_depth + 1)
+                Change_Row(Fragment_T, T)
+                del Fragment_T
+    return T
 
 
 def Input():
@@ -207,22 +290,19 @@ def Create(command):
         print(pe)
         print('Сolumn: {}'.format(pe.column))
     else:
-        print('Created table', parsed.table_name, 'contains the following columns:')
         columns = []
         column = Column('ID', False)
         columns.append(column)
         for i in parsed.created:
             if (len(i) == 1):
-                print(i[0] + '  NON-INDEXED')
                 column = Column(i[0], False)
             else:
-                print(i[0] + '  INDEXED')
                 column = Column(i[0], True)
             columns.append(column)
 
-        table = Table(parsed.table_name, columns)
-        table.Print()
-        DataBase.append(table)
+        T = Table(parsed.table_name, columns)
+        T.Print()
+        DataBase.append(T)
 
 
 def Insert(command):
@@ -242,17 +322,17 @@ def Insert(command):
         if Check_Table(parsed.table_name) == False:
             return
 
-        for Table in DataBase:
-            if Table.name == parsed.table_name:
-                if (len(parsed.inserted) == len(Table.columns) - 1):
+        for T in DataBase:
+            if T.name == parsed.table_name:
+                if (len(parsed.inserted) == len(T.columns) - 1):
 
-                    parsed.inserted.insert(0, str(Table.columns[0].counter))
-                    for idx in range(len(Table.columns)):
-                        Table.columns[idx].Insert_Element(parsed.inserted[idx])
+                    parsed.inserted.insert(0, str(T.columns[0].counter))
+                    for idx in range(len(T.columns)):
+                        T.columns[idx].Insert_Element(parsed.inserted[idx])
 
-                    Table.Print()
+                    T.Print()
                 else:
-                    print('You should insert', len(Table.columns) - 1, 'elements!')
+                    print('You should insert', len(T.columns) - 1, 'elements!')
                 break
 
 
@@ -281,20 +361,20 @@ def Select(command):
         if Check_Table(parsed.table_name) == False:
             return
 
-        for Table in DataBase:
-            if Table.name == parsed.table_name:
+        for T in DataBase:
+            if T.name == parsed.table_name:
                 printable_cols = []
                 if (parsed.selected[0] == '*'):
-                    printable_cols = Table.columns
+                    printable_cols = T.columns
                 else:
-                    if Table.Check_Columns(parsed.selected) == False:
+                    if T.Check_Columns(parsed.selected) == False:
                         return
-                    for column in Table.columns:
+                    for column in T.columns:
                         for name in parsed.selected:
                             if column.name == name:
                                 printable_cols.append(column)
 
-                Where_Table = copy.deepcopy(Table)
+                Where_T = Create_Table(T)
                 if parsed.condition != empty():
                     operator = ''
                     if parsed.condition[1] == '=':
@@ -310,51 +390,18 @@ def Select(command):
                     elif parsed.condition[1] == '<=':
                         operator = '>'
 
-                    if Where_Table.Check_Column(parsed.condition[0]) == False and Table.Check_Column(parsed.condition[2]) == False:
+                    if Where_T.Check_Column(parsed.condition[0]) == False and T.Check_Column(parsed.condition[2]) == False:
                         print('At least 1 operand of condition must be a name of the column!')
                         return
                     else:
-                        ids = Get_IDs(Where_Table, [parsed.condition[0], operator, parsed.condition[2]])
+                        ids = Get_IDs(Where_T, [parsed.condition[0], operator, parsed.condition[2]])
                         for id in ids:
-                            Where_Table.Delete_Row(id)
+                            Where_T.Delete_Row(id)
 
-                Order_table = copy.deepcopy(Where_Table)
                 if parsed.ordered != empty():
-                    for i in parsed.ordered:
-                        name = i[0]
-                        if Table.Check_Column(name) == False:
-                            print('There is no column named', name)
-                            return
-                        if len(i) == 1:
-                            order = 'ASC'
-                        else:
-                            order = i[1]
+                    Where_T = Sort_Table(Where_T, parsed.ordered, 0)
 
-                        Buff_table = copy.deepcopy(Order_table)
-                        ids = []
-                        for column in Order_table.columns:
-                            if column.name == name:
-                                if column.indexed == True:
-                                    for id in SortedDict(column.tree).values():
-                                        ids = ids + id
-                                else:
-                                    for sorted_val in SortedList(column.values):
-                                        for row_idx in range(len(column.values)):
-                                            if column.values[row_idx] == sorted_val:
-                                                id = Order_table.columns[0].values[row_idx]
-                                                if id not in ids:
-                                                    ids.append(id)
-                                break
-
-                        if order == 'DESC':
-                            ids = list(reversed(ids))
-
-                        for target_row_idx in range(len(ids)):
-                            buff_row_idx = Buff_table.columns[0].values.index(str(ids[target_row_idx]))
-                            for col_idx in range(len(Order_table.columns)):
-                                Order_table.columns[col_idx].values[target_row_idx] = Buff_table.columns[col_idx].values[buff_row_idx]
-
-                Order_table.Print_Selected(printable_cols)
+            Where_T.Print_Selected(printable_cols)
             break
 
 
@@ -376,62 +423,62 @@ def Delete(command):
         if Check_Table(parsed.table_name) == False:
             return
 
-        for Table in DataBase:
-            if Table.name == parsed.table_name:
+        for T in DataBase:
+            if T.name == parsed.table_name:
                 if parsed.condition == empty():
-                    print('Table ' + Table.name + ' was deleted.')
-                    DataBase.remove(Table)
+                    print('Table ' + T.name + ' was deleted.')
+                    DataBase.remove(T)
                 else:
-                    if Table.Check_Column(parsed.condition[0]) == False and Table.Check_Column(parsed.condition[2]) == False:
+                    if T.Check_Column(parsed.condition[0]) == False and T.Check_Column(parsed.condition[2]) == False:
                         print('At least 1 operand of condition must be a name of the column!')
                         return
                     else:
-                        ids = Get_IDs(Table, parsed.condition)
+                        ids = Get_IDs(T, parsed.condition)
                         for id in ids:
-                            Table.Delete_Row(id)
-                        Table.Print()
+                            T.Delete_Row(id)
+                        T.Print()
                 break
 
 
 def Main():
-    # str100 = 'CREATE cats (age, name INDEXED, favourite_food);'
+    str100 = 'CREATE cats (age, name INDEXED, food, color, owner);'
 
-    # str200 = 'INSERT cats ("10", "bobrik", "meat");'
-    # str201 = 'INSERT cats ("3", "abra", "burger");'
-    # str202 = 'INSERT cats ("5", "kitty", "applepie");'
-    # str203 = 'INSERT cats ("7", "kiskis", "melon");'
-    # str204 = 'INSERT cats ("14", "cobra", "milk");'
-    # str205 = 'INSERT cats ("20", "zzzz", "fish");'
-    # str206 = 'INSERT cats ("6", "murzilka", "pumpkin");'
-    # str207 = 'INSERT cats ("18", "bobrik", "abracadabra");'
+    str200 = 'INSERT cats ("10", "bobrik", "abracadabra", "blue", "Bill");'
+    str201 = 'INSERT cats ("3", "abra", "burger", "green", "Tim");'
+    str202 = 'INSERT cats ("5", "kitty", "applepie", "orange", "Sam");'
+    str203 = 'INSERT cats ("7", "kiskis", "melon", "black", "Tom");'
+    str204 = 'INSERT cats ("10", "bobrik", "abracadabra", "brown", "John");'
+    str205 = 'INSERT cats ("20", "zzzz", "fish", "green", "Sam");'
+    str206 = 'INSERT cats ("6", "murzilka", "pumpkin", "white", "Ben");'
+    str207 = 'INSERT cats ("18", "bobrik", "milk", "green", "Kris");'
+    str208 = 'INSERT cats ("13", "bobrik", "abracadabra", "green", "Archy");'
+    str209 = 'INSERT cats ("14", "cobra", "meat", "purple", "Martin");'
+    str210 = 'INSERT cats ("13", "kiskis", "milk", "red", "Jack");'
+    str211 = 'INSERT cats ("25", "cobra", "pizza", "yellow", "Anton");'
+    str212 = 'INSERT cats ("5", "abra", "bread", "lighblue", "Joseph");'
+    str213 = 'INSERT cats ("7", "kiskis", "melon", "blue", "Alex");'
 
-    # str200 = 'INSERT cats ("10", "bobrik", "meat");'
-    # str201 = 'INSERT cats ("19", "kiskis", "burger");'
-    # str202 = 'INSERT cats ("25", "bobrik", "applepie");'
-    # str203 = 'INSERT cats ("27", "kiskis", "kiskis");'
-    # str204 = 'INSERT cats ("15", "cobra", "burger");'
-    # str205 = 'INSERT cats ("20", "bobrik", "fish");'
-    # str206 = 'INSERT cats ("12", "murzilka", "cobra");'
-    # str207 = 'INSERT cats ("18", "bobrik", "abracadabra");'
+    str300 = 'SELECT ID, name, food FROM cats WHERE food < "fish" ORDER_BY name DESC;'
+    str301 = 'SELECT ID, name, food FROM cats WHERE food < "fish" ORDER_BY food DESC;'
+    str302 = 'SELECT name, food FROM cats;'
+    str303 = 'SELECT ID, name, food FROM cats WHERE food != "fish" ORDER_BY name ASC;'
+    str304 = 'SELECT ID, name, food FROM cats WHERE food = "burger";'
+    str305 = 'SELECT ID, name, food FROM cats WHERE name <= "cobra";'
+    str306 = 'SELECT ID, name, food FROM cats WHERE food < "fish" ORDER_BY name, food DESC;'
+    str307 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC;'
+    str308 = 'SELECT * FROM cats ORDER_BY color DESC, food ASC, name DESC;'
+    str309 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC, food ASC, color DESC;'
+    str310 = 'SELECT ID, name, food, color FROM cats ORDER_BY color DESC, food ASC, name DESC;'
 
-    # str300 = 'SELECT ID, name, favourite_food FROM cats WHERE favourite_food < "fish" ORDER_BY name DESC;'
-    # str301 = 'SELECT ID, name, favourite_food FROM cats WHERE favourite_food < "fish" ORDER_BY favourite_food DESC;'
-    # str302 = 'SELECT name, favourite_food FROM cats;'
-    # str303 = 'SELECT ID, name, favourite_food FROM cats WHERE favourite_food != "fish" ORDER_BY name ASC;'
-    # str304 = 'SELECT ID, name, favourite_food FROM cats WHERE favourite_food = "burger";'
-    # str305 = 'SELECT ID, name, favourite_food FROM cats WHERE name <= "cobra";'
-    # str306 = 'SELECT ID, name, favourite_food FROM cats WHERE favourite_food < "fish" ORDER_BY name DESC, favourite_food;'
-
-    # str400 = 'DELETE FROM cats WHERE favourite_food != "burger";'
-    # str401 = 'DELETE FROM cats WHERE name > "cobra";'
-    # str402 = 'DELETE FROM cats WHERE name != favourite_food;'
-    # str403 = 'DELETE FROM cats WHERE "cobra" < name;'
-    # str404 = 'DELETE FROM cats;'
+    str400 = 'DELETE FROM cats WHERE food != "burger";'
+    str401 = 'DELETE FROM cats WHERE name > "cobra";'
+    str402 = 'DELETE FROM cats WHERE name != food;'
+    str403 = 'DELETE FROM cats WHERE "cobra" < name;'
+    str404 = 'DELETE FROM cats;'
 
     while (True):
         command = Input()
         command = Clear_Text(command)
-        print('\nEntered SQL command: ' + command + '\n')
         lexem = command.split(' ')[0]
         if (lexem == CaselessLiteral('CREATE')):
             Create(command)
@@ -446,7 +493,6 @@ def Main():
             return 0
         else:
             print('Entered command is unrecognised!')
-        print('\n\n---------------------------------------------------------------\n\n')
-
+        print('\n')
 
 Main()
