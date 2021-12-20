@@ -32,10 +32,12 @@ class Column:
                 del temp[value]
             else:
                 temp[value].remove(int(id))
-            self.tree = SortedDict(temp)
 
-    def Insert_Element(self, value):
+    def Insert_Element(self, value, counter = empty()):
         self.values.append(value)
+        if counter != empty():
+            self.counter = counter
+
         if self.indexed == True:
             temp = self.tree
             if value not in temp:
@@ -44,7 +46,6 @@ class Column:
                 temp[value].append(self.counter)
             else:
                 temp[value] = [temp[value], self.counter]
-            self.tree = SortedDict(temp)
         self.counter = self.counter + 1
 
 
@@ -72,6 +73,13 @@ class Table:
             for col in cols:
                 if column.name == col.name:
                     header.append(column.name)
+        postfix = 0
+        for i in range(0, len(header)):
+            count = header.count(header[i])
+            if count > 1:
+                header[i] = header[i] + '*' * postfix
+                postfix = postfix + 1
+
         table = PrettyTable(header)
 
         for idx in range(len(self.columns[0].values)):
@@ -106,14 +114,14 @@ class Table:
 
 
 def Check_Table(name):
-    for T in DataBase:
-        if T.name == name:
+    for table in DataBase:
+        if table.name == name:
             return True
     print('There is no table named', name, 'in data base!')
     return False
 
 
-def Get_IDs(T, condition):
+def Get_IDs(T, condition, Index_checker):
     operator = condition[1]
     ids = []
     if T.Check_Column(condition[0]) == True and T.Check_Column(condition[2]) == True:
@@ -155,7 +163,7 @@ def Get_IDs(T, condition):
 
         for column in T.columns:
             if column.name == name:
-                if column.indexed == True:
+                if column.indexed == True and Index_checker == True:
                     for val in column.tree:
                         if (operator == '=' and val == value) or (operator == '!=' and val != value) \
                                 or (operator == '>' and val > value) or (operator == '<' and val < value) \
@@ -172,7 +180,7 @@ def Get_IDs(T, condition):
                             indexes = Find_Occurrences(column.values, val)
                             id = []
                             for idx in indexes:
-                                id.append(T.columns[0].values[idx])
+                                id.append(int(T.columns[0].values[idx]))
                             ids = ids + id
     return np.unique(ids)
 
@@ -183,12 +191,93 @@ def Clear_Text(multiline):
     return ' '.join(multiline.replace('\n', '').replace('\r', '').split())
 
 
+def Input():
+    print('Please, enter SQL command (you should use at least one ";" symbol):')
+    multiline = ''
+    while ';' not in multiline:
+        multiline = multiline + input()
+    return Clear_Text(multiline)
+
+
+def Create_Empty_Table(name, T):
+    empty_cols = []
+    for column in T.columns:
+        empty_cols.append(Column(column.name, column.indexed))
+    Buff_T = Table(name, empty_cols)
+    return Buff_T
+
+
 def Add_Row(Source_T, Destination_T, id):
     for ID in Source_T.columns[0].values:
-        if ID == id:
+        if str(ID) == str(id):
             row_idx = Source_T.columns[0].values.index(ID)
             for col_idx in range(len(Destination_T.columns)):
-                Destination_T.columns[col_idx].Insert_Element(Source_T.columns[col_idx].values[row_idx])
+                Destination_T.columns[col_idx].Insert_Element(Source_T.columns[col_idx].values[row_idx], int(id))
+            break
+
+
+def Create(command):
+    ident = Word(initChars = alphas, bodyChars = (alphanums + '_'))
+
+    col_indexed = Optional(CaselessLiteral('INDEXED'))
+    create_full = Group(ident + col_indexed)
+    created = delimitedList(create_full, delim = ',')('created')
+
+    create_command = CaselessLiteral('CREATE') + ident('table_name') + '(' + created + ');'
+    try:
+        parsed = create_command.parseString(command)
+    except ParseException as pe:
+        print('Cannot correctly parse this SQL command!')
+        print(pe)
+        print('Сolumn: {}'.format(pe.column))
+    else:
+        print('Created table', parsed.table_name, 'contains the following columns:')
+        columns = []
+        column = Column('ID', False)
+        columns.append(column)
+        for i in parsed.created:
+            if (len(i) == 1):
+                print(i[0] + '  NON-INDEXED')
+                column = Column(i[0], False)
+            else:
+                print(i[0] + '  INDEXED')
+                column = Column(i[0], True)
+            columns.append(column)
+
+        table = Table(parsed.table_name, columns)
+        table.Print()
+        DataBase.append(table)
+
+
+def Insert(command):
+    ident = Word(initChars = alphas, bodyChars = (alphanums + '_'))
+
+    value = QuotedString('"', escQuote = '""')
+    inserted = delimitedList(value, delim = ',')('inserted')
+
+    insert_command = CaselessLiteral('INSERT') + Optional(CaselessLiteral('INTO')) + ident('table_name') + '(' + inserted + ');'
+    try:
+        parsed = insert_command.parseString(command)
+    except ParseException as pe:
+        print('Cannot correctly parse this SQL command!')
+        print(pe)
+        print('Сolumn: {}'.format(pe.column))
+    else:
+        if Check_Table(parsed.table_name) == False:
+            return
+
+        for Table in DataBase:
+            if Table.name == parsed.table_name:
+                if (len(parsed.inserted) == len(Table.columns) - 1):
+
+                    parsed.inserted.insert(0, str(Table.columns[0].counter))
+                    for idx in range(len(Table.columns)):
+                        Table.columns[idx].Insert_Element(parsed.inserted[idx])
+
+                    Table.Print()
+                else:
+                    print('You should insert', len(Table.columns) - 1, 'elements!')
+                break
 
 
 def Change_Row(Source_T, Destination_T):
@@ -204,34 +293,18 @@ def Change_Row(Source_T, Destination_T):
     return Destination_T
 
 
-def Create_Table(T):
-    empty_cols = []
-    for column in T.columns:
-        empty_cols.append(Column(column.name, column.indexed))
-    Buff_T = Table('Buff_T', empty_cols)
-
-    for row_idx in range(len(T.columns[0].values)):
-        for col_idx in range(len(T.columns)):
-            Buff_T.columns[col_idx].Insert_Element(T.columns[col_idx].values[row_idx])
-    return Buff_T
-
-
-def Create_Empty_Table(T):
-    empty_cols = []
-    for column in T.columns:
-        empty_cols.append(Column(column.name, column.indexed))
-    Buff_T = Table('Buff_T', empty_cols)
-    return Buff_T
-
-
-def Sort_Table(T, order, order_depth):
+def Sort_Table(T, order, order_depth, index_checker):
     if (order_depth >= len(order)):
         return T
-    Buff_T = Create_Table(T)
+
+    Buff_T = Create_Empty_Table('Buff_T', T)
+    for id in T.columns[0].values:
+        Add_Row(T, Buff_T, id)
+
     ids = []
     for column in T.columns:
         if column.name == order[order_depth][0]:
-            if column.indexed == True:
+            if column.indexed == True and index_checker == True:
                 for id in SortedDict(column.tree).values():
                     ids = ids + id
             else:
@@ -257,83 +330,14 @@ def Sort_Table(T, order, order_depth):
                     if count >= 2:
                         sorted_values.append(column.values[i])
             for val in sorted_values:
-                Fragment_T = Create_Empty_Table(T)
-                IDs = Get_IDs(T, [order[order_depth][0], '=', val])
+                Fragment_T = Create_Empty_Table('Fragment_T', T)
+                IDs = Get_IDs(T, [order[order_depth][0], '=', val], False)
                 for id in IDs:
                     Add_Row(T, Fragment_T, str(id))
-                Fragment_T = Sort_Table(Fragment_T, order, order_depth + 1)
+                Fragment_T = Sort_Table(Fragment_T, order, order_depth + 1, False)
                 Change_Row(Fragment_T, T)
                 del Fragment_T
     return T
-
-
-def Input():
-    print('Please, enter SQL command (you should use at least one ";" symbol):')
-    multiline = ''
-    while ';' not in multiline:
-        multiline = multiline + input()
-    return Clear_Text(multiline)
-
-
-def Create(command):
-    ident = Word(initChars = alphas, bodyChars = (alphanums + '_'))
-
-    col_indexed = Optional(CaselessLiteral('INDEXED'))
-    create_full = Group(ident + col_indexed)
-    created = delimitedList(create_full, delim = ',')('created')
-
-    create_command = CaselessLiteral('CREATE') + ident('table_name') + '(' + created + ');'
-    try:
-        parsed = create_command.parseString(command)
-    except ParseException as pe:
-        print('Cannot correctly parse this SQL command!')
-        print(pe)
-        print('Сolumn: {}'.format(pe.column))
-    else:
-        columns = []
-        column = Column('ID', False)
-        columns.append(column)
-        for i in parsed.created:
-            if (len(i) == 1):
-                column = Column(i[0], False)
-            else:
-                column = Column(i[0], True)
-            columns.append(column)
-
-        T = Table(parsed.table_name, columns)
-        T.Print()
-        DataBase.append(T)
-
-
-def Insert(command):
-    ident = Word(initChars = alphas, bodyChars = (alphanums + '_'))
-
-    value = QuotedString('"', escQuote = '""')
-    inserted = delimitedList(value, delim = ',')('inserted')
-
-    insert_command = CaselessLiteral('INSERT') + Optional(CaselessLiteral('INTO')) + ident('table_name') + '(' + inserted + ');'
-    try:
-        parsed = insert_command.parseString(command)
-    except ParseException as pe:
-        print('Cannot correctly parse this SQL command!')
-        print(pe)
-        print('Сolumn: {}'.format(pe.column))
-    else:
-        if Check_Table(parsed.table_name) == False:
-            return
-
-        for T in DataBase:
-            if T.name == parsed.table_name:
-                if (len(parsed.inserted) == len(T.columns) - 1):
-
-                    parsed.inserted.insert(0, str(T.columns[0].counter))
-                    for idx in range(len(T.columns)):
-                        T.columns[idx].Insert_Element(parsed.inserted[idx])
-
-                    T.Print()
-                else:
-                    print('You should insert', len(T.columns) - 1, 'elements!')
-                break
 
 
 def Select(command):
@@ -358,50 +362,74 @@ def Select(command):
         print(pe)
         print('Сolumn: {}'.format(pe.column))
     else:
-        if Check_Table(parsed.table_name) == False:
-            return
+        Indx_part = ''
+        Index_checker = False
+        if parsed.condition != empty():
+            for Table in DataBase:
+                if Table.name == parsed.table_name:
+                    for col in Table.columns:
+                        if (col.name == parsed.condition[0] and col.indexed == True) or (col.name == parsed.condition[2] and col.indexed == True):
+                            Indx_part = 'Condition'
+                            break
+        if parsed.ordered != empty() and len(parsed.ordered) == 1 and Indx_part == '':
+            for Table in DataBase:
+                if Table.name == parsed.table_name:
+                    for col in Table.columns:
+                        for val in parsed.ordered:
+                            if col.name == val[0] and col.indexed == True:
+                                Indx_part = 'Order'
+                                break
 
-        for T in DataBase:
-            if T.name == parsed.table_name:
+        for Table in DataBase:
+            if Table.name == parsed.table_name:
                 printable_cols = []
                 if (parsed.selected[0] == '*'):
-                    printable_cols = T.columns
+                    printable_cols = Table.columns
                 else:
-                    if T.Check_Columns(parsed.selected) == False:
+                    if Table.Check_Columns(parsed.selected) == False:
                         return
-                    for column in T.columns:
+
+                    for column in Table.columns:
                         for name in parsed.selected:
                             if column.name == name:
                                 printable_cols.append(column)
 
-                Where_T = Create_Table(T)
+                Where_Table = Create_Empty_Table('Where_Table', Table)
                 if parsed.condition != empty():
-                    operator = ''
-                    if parsed.condition[1] == '=':
-                        operator = '!='
-                    elif parsed.condition[1] == '!=':
-                        operator = '='
-                    elif parsed.condition[1] == '>':
-                        operator = '<='
-                    elif parsed.condition[1] == '<':
-                        operator = '>='
-                    elif parsed.condition[1] == '>=':
-                        operator = '<'
-                    elif parsed.condition[1] == '<=':
-                        operator = '>'
+                    if Indx_part == 'Condition':
+                        Index_checker = True
+                    operator = parsed.condition[1]
 
-                    if Where_T.Check_Column(parsed.condition[0]) == False and T.Check_Column(parsed.condition[2]) == False:
+                    if Table.Check_Column(parsed.condition[0]) == False and Table.Check_Column(parsed.condition[2]) == False:
                         print('At least 1 operand of condition must be a name of the column!')
                         return
                     else:
-                        ids = Get_IDs(Where_T, [parsed.condition[0], operator, parsed.condition[2]])
+                        ids = Get_IDs(Table, [parsed.condition[0], operator, parsed.condition[2]], Index_checker)
+                        print(ids)
                         for id in ids:
-                            Where_T.Delete_Row(id)
+                            Add_Row(Table, Where_Table, id)
+                else:
+                    for id in Table.columns[0].values:
+                        Add_Row(Table, Where_Table, id)
 
                 if parsed.ordered != empty():
-                    Where_T = Sort_Table(Where_T, parsed.ordered, 0)
+                    order = []
+                    for i in parsed.ordered:
+                        name = i[0]
+                        if Table.Check_Column(name) == False:
+                            print('There is no column named', name)
+                            return
+                        if len(i) == 1:
+                            mode = 'ASC'
+                        else:
+                            mode = i[1]
+                        order.append([name, mode])
 
-            Where_T.Print_Selected(printable_cols)
+                    if Indx_part == 'Order':
+                        Index_checker = True
+                    Where_Table = Sort_Table(Where_Table, order, 0, Index_checker)
+
+                Where_Table.Print_Selected(printable_cols)
             break
 
 
@@ -423,21 +451,22 @@ def Delete(command):
         if Check_Table(parsed.table_name) == False:
             return
 
-        for T in DataBase:
-            if T.name == parsed.table_name:
+        for Table in DataBase:
+            if Table.name == parsed.table_name:
                 if parsed.condition == empty():
-                    print('Table ' + T.name + ' was deleted.')
-                    DataBase.remove(T)
+                    print('Table ' + Table.name + ' was deleted.')
+                    DataBase.remove(Table)
                 else:
-                    if T.Check_Column(parsed.condition[0]) == False and T.Check_Column(parsed.condition[2]) == False:
+                    if Table.Check_Column(parsed.condition[0]) == False and Table.Check_Column(parsed.condition[2]) == False:
                         print('At least 1 operand of condition must be a name of the column!')
                         return
                     else:
-                        ids = Get_IDs(T, parsed.condition)
+                        ids = Get_IDs(Table, parsed.condition, True)
                         for id in ids:
-                            T.Delete_Row(id)
-                        T.Print()
+                            Table.Delete_Row(id)
+                        Table.Print()
                 break
+
 
 
 def Main():
@@ -466,9 +495,10 @@ def Main():
     str305 = 'SELECT ID, name, food FROM cats WHERE name <= "cobra";'
     str306 = 'SELECT ID, name, food FROM cats WHERE food < "fish" ORDER_BY name, food DESC;'
     str307 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC;'
-    str308 = 'SELECT * FROM cats ORDER_BY color DESC, food ASC, name DESC;'
+    str308 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC, food ASC;'
     str309 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC, food ASC, color DESC;'
     str310 = 'SELECT ID, name, food, color FROM cats ORDER_BY color DESC, food ASC, name DESC;'
+    str311 = 'SELECT * FROM cats ORDER_BY color DESC, food ASC, name DESC;'
 
     str400 = 'DELETE FROM cats WHERE food != "burger";'
     str401 = 'DELETE FROM cats WHERE name > "cobra";'
@@ -494,5 +524,6 @@ def Main():
         else:
             print('Entered command is unrecognised!')
         print('\n')
+
 
 Main()
