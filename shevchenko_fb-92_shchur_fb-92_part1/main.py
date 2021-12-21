@@ -293,7 +293,8 @@ def Change_Row(Source_T, Destination_T):
     return Destination_T
 
 
-def Sort_Table(T, order, order_depth, index_checker):
+
+def Order_Table(T, order, order_depth, index_checker):
     if (order_depth >= len(order)):
         return T
 
@@ -334,7 +335,7 @@ def Sort_Table(T, order, order_depth, index_checker):
                 IDs = Get_IDs(T, [order[order_depth][0], '=', val], False)
                 for id in IDs:
                     Add_Row(T, Fragment_T, str(id))
-                Fragment_T = Sort_Table(Fragment_T, order, order_depth + 1, False)
+                Fragment_T = Order_Table(Fragment_T, order, order_depth + 1, False)
                 Change_Row(Fragment_T, T)
                 del Fragment_T
     return T
@@ -362,24 +363,35 @@ def Select(command):
         print(pe)
         print('Сolumn: {}'.format(pe.column))
     else:
+        # визначаємо в якій частині використати індексацію
         Indx_part = ''
-        Index_checker = False
         if parsed.condition != empty():
             for Table in DataBase:
                 if Table.name == parsed.table_name:
                     for col in Table.columns:
-                        if (col.name == parsed.condition[0] and col.indexed == True) or (col.name == parsed.condition[2] and col.indexed == True):
-                            Indx_part = 'Condition'
+                        if col.name == parsed.condition[0] and col.indexed == True:
+                            Indx_part = Indx_part + 'Where'
                             break
-        if parsed.ordered != empty() and len(parsed.ordered) == 1 and Indx_part == '':
+                        elif col.name == parsed.condition[0] and col.indexed == False:
+                            Indx_part = Indx_part + 'NoWhere'
+                            break
+        else:
+            Indx_part = Indx_part + 'NoWhere'
+        if parsed.ordered != empty():
             for Table in DataBase:
                 if Table.name == parsed.table_name:
                     for col in Table.columns:
-                        for val in parsed.ordered:
-                            if col.name == val[0] and col.indexed == True:
-                                Indx_part = 'Order'
-                                break
+                        if col.name == parsed.ordered[0][0] and col.indexed == True:
+                            Indx_part = Indx_part + 'Order'
+                        elif col.name == parsed.ordered[0][0] and col.indexed == False:
+                            Indx_part = Indx_part + 'NoOrder'
+                            break
+        else:
+            Indx_part = Indx_part + 'NoOrder'
+        if parsed.condition == empty() and parsed.ordered == empty():
+            Indx_part = 'NoIndex'
 
+        print(Indx_part)
         for Table in DataBase:
             if Table.name == parsed.table_name:
                 printable_cols = []
@@ -387,31 +399,15 @@ def Select(command):
                     printable_cols = Table.columns
                 else:
                     if Table.Check_Columns(parsed.selected) == False:
+                        print('At least 1 operand of condition must be a name of the column!')
                         return
-
                     for column in Table.columns:
                         for name in parsed.selected:
                             if column.name == name:
                                 printable_cols.append(column)
-
-                Where_Table = Create_Empty_Table('Where_Table', Table)
-                if parsed.condition != empty():
-                    if Indx_part == 'Condition':
-                        Index_checker = True
-                    operator = parsed.condition[1]
-
-                    if Table.Check_Column(parsed.condition[0]) == False and Table.Check_Column(parsed.condition[2]) == False:
-                        print('At least 1 operand of condition must be a name of the column!')
-                        return
-                    else:
-                        ids = Get_IDs(Table, [parsed.condition[0], operator, parsed.condition[2]], Index_checker)
-                        print(ids)
-                        for id in ids:
-                            Add_Row(Table, Where_Table, id)
-                else:
-                    for id in Table.columns[0].values:
-                        Add_Row(Table, Where_Table, id)
-
+                if Indx_part == 'NoIndex':
+                    Table.Print_Selected(printable_cols)
+                    return
                 if parsed.ordered != empty():
                     order = []
                     for i in parsed.ordered:
@@ -424,18 +420,52 @@ def Select(command):
                         else:
                             mode = i[1]
                         order.append([name, mode])
-
-                    if Indx_part == 'Order':
-                        Index_checker = True
-                    Where_Table = Sort_Table(Where_Table, order, 0, Index_checker)
-
+                if parsed.condition != empty():
+                    if Table.Check_Column(parsed.condition[0]) == False and Table.Check_Column(parsed.condition[2]) == False:
+                        print('At least 1 operand of condition must be a name of the column!')
+                        return
+                Where_Table = Create_Empty_Table('Where_Table', Table)
+                # якщо індексація відбуваєтсья по Where то спочатку відкидаємо непотріні рядки а потім сортуємо
+                if Indx_part == 'WhereNoOrder':
+                    operator = parsed.condition[1]
+                    ids = Get_IDs(Table, [parsed.condition[0], operator, parsed.condition[2]], True)
+                    for id in ids:
+                        Add_Row(Table, Where_Table, id)
+                    if parsed.ordered != empty():
+                        Where_Table = Order_Table(Where_Table, order, 0, False)
+                # якщо індексація відбуваєтсья по Order то спочатку сортуємо а потім відкидаємо непотрібні
+                if Indx_part == 'NoWhereOrder':
+                    for id in Table.columns[0].values:
+                        Add_Row(Table, Where_Table, id)
+                    Where_Table = Order_Table(Where_Table, order, 0, True)
+                    if parsed.condition != empty():
+                        operator = parsed.condition[1]
+                        ids = Get_IDs(Table, [parsed.condition[0], operator, parsed.condition[2]], False)
+                        print(ids)
+                        for id in ids:
+                            Where_Table.Delete_Row(id)
+                # якщо індексація відбуваєтсья і по Order і по Where то спочатку відкидаємо непотрібні а потім сортуємо
+                if Indx_part == 'WhereOrder':
+                    operator = parsed.condition[1]
+                    ids = Get_IDs(Table, [parsed.condition[0], operator, parsed.condition[2]], True)
+                    for id in ids:
+                        Add_Row(Table, Where_Table, id)
+                    if parsed.ordered != empty():
+                        Where_Table = Order_Table(Where_Table, order, 0, True)
+                # якщо індексація не відбуваєтсья по Order та Where то спочатку відкидаємо непотрібні а потім сортуємо
+                if Indx_part == 'NoWhereNoOrder':
+                    operator = parsed.condition[1]
+                    ids = Get_IDs(Table, [parsed.condition[0], operator, parsed.condition[2]], False)
+                    for id in ids:
+                        Add_Row(Table, Where_Table, id)
+                    if parsed.ordered != empty():
+                        Where_Table = Order_Table(Where_Table, order, 0, False)
                 Where_Table.Print_Selected(printable_cols)
             break
 
 
 def Delete(command):
     ident = Word(initChars = alphas, bodyChars = (alphanums + '_'))
-
     operator = (Word('=') ^ Word('!=') ^ Word('>') ^ Word('<') ^ Word('>=') ^ Word('<='))
     value = QuotedString('"', escQuote = '""')
     condition = Group((ident ^ value) + operator + (ident ^ value))('condition')
@@ -468,7 +498,6 @@ def Delete(command):
                 break
 
 
-
 def Main():
     str100 = 'CREATE cats (age, name INDEXED, food, color, owner);'
 
@@ -493,12 +522,12 @@ def Main():
     str303 = 'SELECT ID, name, food FROM cats WHERE food != "fish" ORDER_BY name ASC;'
     str304 = 'SELECT ID, name, food FROM cats WHERE food = "burger";'
     str305 = 'SELECT ID, name, food FROM cats WHERE name <= "cobra";'
-    str306 = 'SELECT ID, name, food FROM cats WHERE food < "fish" ORDER_BY name, food DESC;'
+    str306 = 'SELECT name FROM cats WHERE food < "fish" ORDER_BY name ASC, food DESC;'
     str307 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC;'
     str308 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC, food ASC;'
-    str309 = 'SELECT ID, name, food, color, owner FROM cats ORDER_BY name ASC, food ASC, color DESC;'
+    str309 = 'SELECT ID, name, name, food, color, owner FROM cats ORDER_BY name, food, color DESC;'
     str310 = 'SELECT ID, name, food, color FROM cats ORDER_BY color DESC, food ASC, name DESC;'
-    str311 = 'SELECT * FROM cats ORDER_BY color DESC, food ASC, name DESC;'
+    str311 = 'SELECT * FROM cats ORDER_BY color DESC;'
 
     str400 = 'DELETE FROM cats WHERE food != "burger";'
     str401 = 'DELETE FROM cats WHERE name > "cobra";'
@@ -506,24 +535,42 @@ def Main():
     str403 = 'DELETE FROM cats WHERE "cobra" < name;'
     str404 = 'DELETE FROM cats;'
 
-    while (True):
-        command = Input()
-        command = Clear_Text(command)
+    # str1 = 'create t (x INDEXED, y);'
+    # str2 = 'insert t ("aaa", "zz1");'
+    # str3 = 'insert t ("aaa", "zz2");'
+    # str4 = 'insert t ("xxx", "zzz3");'
+    # str5 = 'insert t ("yyy", "zzz4");'
+    # str6 = 'select * from t where x = "aaa";'
+    # str7 = 'delete t where y = "zz2";'
+    # str8 = 'select * from t where x = "aaa";'
+    # str9 = 'select * from t  where x = "aaa" ORDER_BY x,y;'
+    # str10 = 'select * from t;'
+    # coms = [str1, str2, str3, str4, str5]
+    # coms = coms + [str9, str10]
+
+    coms = [str100]
+    coms = coms + [str200, str201, str202, str203, str204, str205, str206, str207, str208, str209, str210, str211, str212, str213]
+    coms.append(str309)
+    for com in coms:
+        # command = Input()
+        command = Clear_Text(com)
+
+        print('\nEntered SQL command: ' + command + '\n')
         lexem = command.split(' ')[0]
-        if (lexem == CaselessLiteral('CREATE')):
+        if lexem == CaselessLiteral('CREATE'):
             Create(command)
-        elif (lexem == CaselessLiteral('INSERT')):
+        elif lexem == CaselessLiteral('INSERT'):
             Insert(command)
-        elif (lexem == CaselessLiteral('SELECT')):
+        elif lexem == CaselessLiteral('SELECT'):
             Select(command)
-        elif (lexem == CaselessLiteral('DELETE')):
+        elif lexem == CaselessLiteral('DELETE'):
             Delete(command)
-        elif (lexem == CaselessLiteral('EXIT;')):
+        elif lexem == CaselessLiteral('EXIT;'):
             print('Thank you for working with our program!')
             return 0
         else:
             print('Entered command is unrecognised!')
-        print('\n')
+        print('\n\n---------------------------------------------------------------\n\n')
 
 
 Main()
